@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
+# _*_ coding: utf-8 _*_
 """
-# @file name  : model_trainer_bisenet.py
-# @author     : TingsongYu https://github.com/TingsongYu
-# @date       : 2020-02-29
-# @brief      : bisenet模型训练类
+# @Time : 8/2/2021 3:47 PM
+# @Author : byc
+# @Version : 1.0
+# @File : model_trainer_bisnet.py
+# @Description :
 """
 import torch
 import numpy as np
@@ -35,12 +36,8 @@ class ModelTrainer(object):
 
             # compute loss
             labels_4d = labels.unsqueeze(1)    # b,h,w --> b,c,h,w
-            if cfg.loss_type == "dice":
-                labels_4d.ge_(0.78).long()
-            if cfg.loss_type == "focal":
-                labels_4d.squeeze_(1)  # focal loss要求target就是缺少通道这个维度的
 
-            loss_1 = loss_f(outputs, labels_4d)     # 2,224,224
+            loss_1 = loss_f(outputs, labels_4d)
             loss_2 = loss_f(output_sup1, labels_4d)
             loss_3 = loss_f(output_sup2, labels_4d)
 
@@ -48,10 +45,6 @@ class ModelTrainer(object):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
-            # warmup 每个iteration执行step
-            if cfg.is_warmup:
-                scheduler.step()
 
             # 评估 IoU
             # 预测，连续变量转binary
@@ -73,12 +66,13 @@ class ModelTrainer(object):
             train_miou.append(eval_metrix['iou'][1])  # 只取前景类IoU
             train_class_acc.append(eval_metrix['class_accuracy'])
             conf_mat += eval_metrix["conf_mat"]
-            loss_sigma.append(loss_1.item())  # 记录loss只看 主loss，以便于与valid比对
-
+            loss_sigma.append(loss_1.item())  # 记录loss只看 主loss，以便于valid比对
+            print("eval_metrix", eval_metrix)
             # 每10个iteration 打印一次训练信息
             if i % cfg.log_interval == cfg.log_interval - 1:
                 logger.info('|Epoch[{}/{}]||batch[{}/{}]|batch_loss: {:.4f}||mIoU {:.4f}|'.format(
                     epoch_idx, cfg.max_epoch, i + 1, len(data_loader), loss_1.item(), eval_metrix['iou'][1]))
+
         loss_mean = np.mean(loss_sigma)
         acc_mean = np.mean(train_acc)
         miou_mean = np.mean(train_miou)
@@ -133,5 +127,3 @@ class ModelTrainer(object):
         miou_mean = np.mean(valid_miou)
 
         return loss_mean, acc_mean, conf_mat, miou_mean
-
-

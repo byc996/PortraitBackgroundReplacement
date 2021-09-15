@@ -30,8 +30,8 @@ cfg.hist_grad = False
 cfg.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cfg.max_epoch = 40  # 50
 
-cfg.is_fusion_data = True
-cfg.is_ext_data = True
+cfg.is_fusion_data = False
+cfg.is_ext_data = False
 cfg.ext_num = 8500
 
 

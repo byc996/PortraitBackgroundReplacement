@@ -1,45 +1,37 @@
 # _*_ coding: utf-8 _*_
 """
-# @Time : 8/22/2021 12:02 PM
+# @Time : 8/2/2021 1:38 PM
 # @Author : byc
-# @File : train.py
-# @Description : main code for model training
+# @Version : 1.0
+# @File : portrait_train.py
+# @Description :
 """
+import argparse
+from datetime import datetime
 import os
 import sys
-from datetime import datetime
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(BASE_DIR, '..'))  # add project dir to env path
-
-from torch.utils.data import ConcatDataset, DataLoader
-
-from datasets.portrait_dataset import PortraitDataset2000
-from losses.bce_dice_loss import BCEDiceLoss
-from losses.dice_loss import DiceLoss
-from losses.focal_loss_binary import BinaryFocalLossWithLogits
-from models.bisenet import BiSeNet
-from tools.evalution_segmentaion import calc_semantic_segmentation_iou
-from tools.model_trainer_bisenet import ModelTrainer
-from tools.my_lr_schedule import CosineWarmupLr
-import argparse
-import torch
-import torch.nn as nn
-import torch.optim as optim
 import numpy as np
+import torch
+from torch import nn, optim
+from torch.utils.data import DataLoader
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(BASE_DIR, '..'))
+
 from config.protrait_config import cfg
+from datasets.portrait_dataset import PortraitDataset2000
+from models.build_BiSeNet import BiSeNet
 from tools.common_tools import setup_seed, create_logger, check_data_dir, show_confMat, plot_line
+from tools.evalution_segmentaion import calc_semantic_segmentation_iou
+from tools.model_trainer_bisnet import ModelTrainer
 
-setup_seed(20210801)
 
+setup_seed(12345)
 parser = argparse.ArgumentParser(description='Training')
 parser.add_argument('--lr', default=None, help='learning rate', type=float)
 parser.add_argument('--max_epoch', default=None, type=int)
 parser.add_argument('--train_bs', default=0, type=int)
-parser.add_argument('--data_root_dir', default=r"G:\DeepShare\Data\Portrait-dataset-2000", help='path to your dataset')
-parser.add_argument('--ext_dir', default=r"G:\DeepShare\Data\14w_matting", help='path to extra dataset')
-parser.add_argument('--fusion_dir', default=r"G:\DeepShare\Data\Portrait-dataset-2000\coco_fusion_1700", help='path to fusion dataset')
-
+parser.add_argument('--data_root_dir', default=r'G:\DeepShare\Data\Portrait-dataset-2000', help='path to your dataset')
+parser.add_argument('--sup_dir', default=r'G:\deep_learning_data\14w_matting', help='path to your dataset')
 args = parser.parse_args()
 cfg.lr_init = args.lr if args.lr else cfg.lr_init
 cfg.train_bs = args.train_bs if args.train_bs else cfg.train_bs
@@ -47,72 +39,33 @@ cfg.max_epoch = args.max_epoch if args.max_epoch else cfg.max_epoch
 
 
 if __name__ == '__main__':
-    path_model_18 = os.path.join(r'G:\DeepShare\Data\Pretrained_Model', 'resnet18-5c106cde.pth')
-    path_model_101 = os.path.join(r'G:\DeepShare\Data\Pretrained_Model', 'resnet101-5d3b4d8f.pth')
-    path_model_50 = os.path.join(r'G:\DeepShare\Data\Pretrained_Model', 'resnet50-19c8e357.pth')
+    path_model_18 = os.path.join(r"G:\DeepShare\Data\Pretrained_Model", "resnet18-5c106cde.pth")  # bisenet
+    path_model_101 = os.path.join(r"G:\DeepShare\Data\Pretrained_Model", "resnet101-5d3b4d8f.pth")  # bisenet
 
     logger, log_dir = create_logger(BASE_DIR)
 
-    # 1. dataset
     root_dir = args.data_root_dir
     train_dir = os.path.join(root_dir, 'training')
     valid_dir = os.path.join(root_dir, 'testing')
     check_data_dir(train_dir)
     check_data_dir(valid_dir)
 
-    train_set_list = []
-    # base set
-    p_set_2000 = PortraitDataset2000(train_dir, in_size=cfg.in_size, transform=cfg.tf_train)
-    train_set_list.append(p_set_2000)
-
-    if cfg.is_fusion_data:
-        p_set_1700 = PortraitDataset2000(args.fusion_dir, in_size=cfg.in_size, transform=cfg.tf_train)
-        train_set_list.append(p_set_1700)
-    train_set = ConcatDataset(train_set_list)
-    train_set.names = p_set_2000.names
-    train_set.cls_num = p_set_2000.cls_num
-
+    train_set = PortraitDataset2000(train_dir, in_size=cfg.in_size, transform=cfg.tf_train)
     valid_set = PortraitDataset2000(valid_dir, in_size=cfg.in_size, transform=cfg.tf_valid)
 
     train_loader = DataLoader(train_set, batch_size=cfg.train_bs, shuffle=True, num_workers=cfg.workers)
     valid_loader = DataLoader(valid_set, batch_size=cfg.valid_bs, num_workers=cfg.workers)
 
-    # 2. network model
     cls = 1
-    model = BiSeNet(cls, 'resnet101', path_model_101)
-    # model = BiSeNet(cls, 'resnet18', path_model_18)
+    model = BiSeNet(cls, 'resnet18', path_model_18)
     model.to(cfg.device)
 
-    # 3. loss function and optimizer
-    if cfg.loss_type == 'BCE':
-        loss_f = nn.BCEWithLogitsLoss(pos_weight=cfg.bce_pos_weight)
-    elif cfg.loss_type == 'dice':
-        loss_f = DiceLoss()
-    elif cfg.loss_type == 'BCE&dice':
-        loss_f = BCEDiceLoss()
-    elif cfg.loss_type == 'focal':
-        kwargs = {"alpha": cfg.focal_alpha, "gamma": cfg.focal_gamma, "reduction": 'mean'}
-        loss_f = BinaryFocalLossWithLogits(**kwargs)
-
+    loss_f = nn.BCEWithLogitsLoss(pos_weight=cfg.bce_pos_weight)
     optimizer = optim.SGD(model.parameters(), lr=cfg.lr_init, momentum=cfg.momentum, weight_decay=cfg.weight_decay)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, gamma=cfg.factor, milestones=cfg.milestones)
 
-    if cfg.is_warmup:
-        # Note: if activate this warmup code, modify the scheduler.step() in model trainer
-        iter_per_epoch = len(train_loader)
-        scheduler = CosineWarmupLr(optimizer, batches=iter_per_epoch, max_epochs=cfg.max_epoch,
-                                   base_lr=cfg.lr_init, final_lr=cfg.lr_final,
-                                   warmup_epochs=cfg.warmup_epochs, warmup_init_lr=cfg.lr_warmup_init)
-    else:
-        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, gamma=cfg.factor, milestones=cfg.milestones)
-
-    # 4. training
-    # save configuration info in log
-    if torch.cuda.is_available():
-        logger.info("cfg:\n{}\n loss_f:\n{}\n scheduler:\n{}\n optimizer:\n{}\n model:\n{}"
-                "GPU:{}".format(cfg, loss_f, scheduler, optimizer, model, torch.cuda.get_device_name()))
-    else:
-        logger.info("cfg:\n{}\n loss_f:\n{}\n scheduler:\n{}\n optimizer:\n{}\n model:\n{}"
-                    "CPU".format(cfg, loss_f, scheduler, optimizer, model))
+    logger.info("cfg:\n{}\n loss_f:\n{}\n scheduler:\n{}\n optimizer:\n{}\n model:\n{}".format(
+        cfg, loss_f, scheduler, optimizer, type(model)))
 
     loss_rec = {"train": [], "valid": []}
     acc_rec = {"train": [], "valid": []}
@@ -128,7 +81,6 @@ if __name__ == '__main__':
             valid_loader, model, loss_f, cfg)
 
         grad_lst_epoch.extend(grad_lst)
-
         # 学习率更新
         if not cfg.is_warmup:
             scheduler.step()

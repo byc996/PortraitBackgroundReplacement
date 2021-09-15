@@ -1,8 +1,9 @@
 # _*_ coding: utf-8 _*_
 """
-# @Time : 8/27/2021 4:29 PM
+# @Time : 8/2/2021 3:04 PM
 # @Author : byc
-# @File : resnet_bisenet.py
+# @Version : 1.0
+# @File : build_contextpath.py
 # @Description :
 """
 import torch
@@ -69,3 +70,25 @@ class resnet101(torch.nn.Module):
         tail = torch.mean(feature4, 3, keepdim=True)
         tail = torch.mean(tail, 2, keepdim=True)
         return feature3, feature4, tail
+
+
+def build_contextpath(name, path_model=False):
+    assert name in ["resnet18", "resnet101"], "{} is not support! please use resnet18 or resnet101".format(name)
+    if name == "resnet18":
+        model = resnet18(path_model=path_model)
+    elif name == "resnet101":
+        model = resnet101(path_model=path_model)
+    else:
+        # raise "backbone is not defined!"
+        pass
+    return model
+
+
+if __name__ == '__main__':
+    #
+    model_18 = build_contextpath('resnet18', path_model=False)
+    model_101 = build_contextpath('resnet101')
+    x = torch.rand(1, 3, 256, 256)
+
+    y_18 = model_18(x)
+    y_101 = model_101(x)
